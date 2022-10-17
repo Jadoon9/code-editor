@@ -1,19 +1,32 @@
 import * as esbuild from "esbuild-wasm";
 import axios from "axios";
+import localForage from "localforage";
 
-export const unpkgPathPlugin = () => {
+const fileCache = localForage.createInstance({ name: "filecache" });
+
+export const unpkgPathPlugin = (inputCode: string) => {
   return {
     name: "unpkg-path-plugin",
     setup(build: esbuild.PluginBuild) {
+      // *Handle root entry file of index.js
+      build.onResolve({ filter: /(^index\.js$)/ }, () => {
+        return { path: "index.js", namespace: "a" };
+      });
+
+      // *Hanlde relative path ina module
+      build.onResolve({ filter: /^\.+\// }, async (args: any) => {
+        return {
+          namespace: "a",
+          path: new URL(args.path, "https://unpkg.com" + args.resolveDir + "/")
+            .href,
+        };
+      });
+      // * Handle main file of a module
       build.onResolve({ filter: /.*/ }, async (args: any) => {
-        if (args.path === "index.js") {
-          return { path: args.path, namespace: "a" };
-        } else if (args.path === "tiny-test-pkg") {
-          return {
-            path: "https://unpkg.com/tiny-test-pkg@1.0.0/index.js",
-            namespace: "a",
-          };
-        }
+        return {
+          path: `https://unpkg.com/${args.path}`,
+          namespace: "a",
+        };
       });
 
       build.onLoad({ filter: /.*/ }, async (args: any) => {
@@ -22,15 +35,29 @@ export const unpkgPathPlugin = () => {
         if (args.path === "index.js") {
           return {
             loader: "jsx",
-            contents: `
-              import message from 'tiny-test-pkg';
-              console.log(message);
-            `,
+            contents: inputCode,
           };
         }
 
-        const { data } = await axios.get(args.path);
-        return { loader: "jsx", contents: data };
+        // * Check if the request is already made
+        const cachedResult = await fileCache.getItem<esbuild.OnLoadResult>(
+          args.path
+        );
+        if (cachedResult) {
+          return cachedResult;
+        }
+
+        const { data, request } = await axios.get(args.path);
+        const result: esbuild.OnLoadResult = {
+          loader: "jsx",
+          contents: data,
+          resolveDir: new URL("./", request.responseURL).pathname,
+        };
+
+        // * Store response in cache
+        await fileCache.setItem(args.path, result);
+
+        return result;
       });
     },
   };

@@ -21,7 +21,6 @@ function App() {
   };
 
   const formSubmitHandler = async () => {
-    console.log(ref.current, "CURRENT");
     if (!ref.current) {
       return;
     }
@@ -30,11 +29,11 @@ function App() {
       entryPoints: ["index.js"],
       bundle: true,
       write: false,
-      plugins: [unpkgPathPlugin()],
+      plugins: [unpkgPathPlugin(input)],
+      define: { "process.env.NODE_ENV": '"production"', global: "window" },
     });
 
-    console.log(result, "resu;lt");
-    // setOutPut(result?.code);
+    setOutPut(result?.outputFiles[0]?.text);
   };
 
   useEffect(() => {
